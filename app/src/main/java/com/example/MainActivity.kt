@@ -7,10 +7,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOutCubic
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -33,7 +36,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -49,10 +51,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -64,10 +66,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class DeliberateState {
-  INITIAL,
+  HOME,
   BREATHING,
   INTENTION,
-  RESOLVE
+  CONFIRMATION
 }
 
 enum class BreathingPhase(val label: String, val totalSeconds: Int) {
@@ -99,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun DeliberateApp(modifier: Modifier = Modifier) {
-  var currentState by remember { mutableStateOf(DeliberateState.INITIAL) }
+  var currentState by remember { mutableStateOf(DeliberateState.HOME) }
   var userAction by remember { mutableStateOf("") }
 
   Box(
@@ -119,37 +121,37 @@ fun DeliberateApp(modifier: Modifier = Modifier) {
         modifier = Modifier
           .fillMaxWidth()
           .widthIn(max = 440.dp)
-          .padding(horizontal = 28.dp),
+          .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
       ) {
         when (state) {
-          DeliberateState.INITIAL -> {
-            InitialStep(
+          DeliberateState.HOME -> {
+            HomeScreen(
               onPause = { currentState = DeliberateState.BREATHING }
             )
           }
 
           DeliberateState.BREATHING -> {
-            BreathingStep(
+            BreathingScreen(
               onFinished = { currentState = DeliberateState.INTENTION }
             )
           }
 
           DeliberateState.INTENTION -> {
-            IntentionStep(
+            IntentionScreen(
               currentAction = userAction,
               onActionChange = { userAction = it },
-              onContinue = { currentState = DeliberateState.RESOLVE }
+              onContinue = { currentState = DeliberateState.CONFIRMATION }
             )
           }
 
-          DeliberateState.RESOLVE -> {
-            ResolveStep(
+          DeliberateState.CONFIRMATION -> {
+            ConfirmationScreen(
               userAction = userAction,
-              onReset = {
+              onGo = {
                 userAction = ""
-                currentState = DeliberateState.INITIAL
+                currentState = DeliberateState.HOME
               }
             )
           }
@@ -160,7 +162,7 @@ fun DeliberateApp(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun InitialStep(
+private fun HomeScreen(
   onPause: () -> Unit,
   modifier: Modifier = Modifier
 ) {
@@ -168,66 +170,91 @@ private fun InitialStep(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
+    // Subtle Eyebrow Label
+    Text(
+      text = "BEFORE YOU USE",
+      style = MaterialTheme.typography.labelLarge,
+      color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+      fontSize = 12.sp,
+      fontWeight = FontWeight.Medium,
+      letterSpacing = 2.8.sp,
+      textAlign = TextAlign.Center
+    )
+
+    Spacer(modifier = Modifier.height(28.dp))
+
+    // Main Question
     Text(
       text = "Do I really need my phone?",
       style = MaterialTheme.typography.headlineLarge,
       color = MaterialTheme.colorScheme.onBackground,
       textAlign = TextAlign.Center,
-      fontWeight = FontWeight.Light,
-      lineHeight = 42.sp,
-      fontSize = 32.sp
+      fontWeight = FontWeight.Normal,
+      fontSize = 32.sp,
+      lineHeight = 42.sp
     )
 
     Spacer(modifier = Modifier.height(36.dp))
 
+    // Mindfulness Stanza
     Text(
       text = "Breathe.\nNotice.\nChoose.",
       style = MaterialTheme.typography.bodyLarge,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
       textAlign = TextAlign.Center,
-      lineHeight = 34.sp,
-      fontSize = 20.sp,
-      letterSpacing = 1.sp
+      lineHeight = 36.sp,
+      fontSize = 19.sp,
+      letterSpacing = 0.5.sp
     )
 
-    Spacer(modifier = Modifier.height(56.dp))
+    Spacer(modifier = Modifier.height(64.dp))
 
+    // Obvious Primary Action Button
     Button(
       onClick = onPause,
       modifier = Modifier
-        .fillMaxWidth(0.6f)
+        .width(180.dp)
         .height(52.dp)
         .testTag("pause_button"),
       shape = RoundedCornerShape(999.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary
-      )
+      ),
+      elevation = null
     ) {
       Text(
         text = "Pause",
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Medium,
-        fontSize = 17.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 16.sp,
+        letterSpacing = 0.6.sp
       )
     }
   }
 }
 
 @Composable
-private fun BreathingStep(
+private fun BreathingScreen(
   onFinished: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   var currentPhase by remember { mutableStateOf(BreathingPhase.INHALE) }
   var secondsLeftInPhase by remember { mutableIntStateOf(BreathingPhase.INHALE.totalSeconds) }
 
-  val orbScale = remember { Animatable(0.48f) }
-  val orbAlpha = remember { Animatable(0.4f) }
+  val orbScale = remember { Animatable(0.44f) }
+  val progressAnim = remember { Animatable(0f) }
 
   LaunchedEffect(Unit) {
-    // 1. Inhale: 4 seconds
+    // 12-second total cycle subtle progress indicator
+    launch {
+      progressAnim.animateTo(
+        targetValue = 1f,
+        animationSpec = tween(durationMillis = 12000, easing = LinearEasing)
+      )
+    }
+
+    // Phase 1: Inhale (4 seconds)
     currentPhase = BreathingPhase.INHALE
     secondsLeftInPhase = 4
     val inhaleCountdown = launch {
@@ -242,15 +269,9 @@ private fun BreathingStep(
         animationSpec = tween(durationMillis = 4000, easing = EaseInOutCubic)
       )
     }
-    launch {
-      orbAlpha.animateTo(
-        targetValue = 0.95f,
-        animationSpec = tween(durationMillis = 4000, easing = EaseInOutCubic)
-      )
-    }
     inhaleCountdown.join()
 
-    // 2. Hold: 2 seconds
+    // Phase 2: Hold (2 seconds)
     currentPhase = BreathingPhase.HOLD
     secondsLeftInPhase = 2
     val holdCountdown = launch {
@@ -261,7 +282,7 @@ private fun BreathingStep(
     }
     holdCountdown.join()
 
-    // 3. Exhale: 6 seconds
+    // Phase 3: Exhale (6 seconds)
     currentPhase = BreathingPhase.EXHALE
     secondsLeftInPhase = 6
     val exhaleCountdown = launch {
@@ -272,115 +293,89 @@ private fun BreathingStep(
     }
     launch {
       orbScale.animateTo(
-        targetValue = 0.48f,
-        animationSpec = tween(durationMillis = 6000, easing = EaseInOutCubic)
-      )
-    }
-    launch {
-      orbAlpha.animateTo(
-        targetValue = 0.4f,
+        targetValue = 0.44f,
         animationSpec = tween(durationMillis = 6000, easing = EaseInOutCubic)
       )
     }
     exhaleCountdown.join()
 
-    delay(400L)
+    delay(300L)
     onFinished()
   }
+
+  val trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+  val indicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
 
   Column(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    Text(
-      text = "Take one breath.",
-      style = MaterialTheme.typography.headlineMedium,
-      color = MaterialTheme.colorScheme.onBackground,
-      textAlign = TextAlign.Center,
-      fontWeight = FontWeight.Light,
-      fontSize = 28.sp,
-      lineHeight = 36.sp
-    )
-
-    Spacer(modifier = Modifier.height(48.dp))
-
-    // Animated Breathing Orb Canvas / Shape
+    // Breathing Visual with Subtle Progress Indicator
     Box(
       modifier = Modifier
-        .size(230.dp)
+        .size(240.dp)
         .testTag("breathing_circle"),
       contentAlignment = Alignment.Center
     ) {
-      // Outer subtle perimeter ring
-      Box(
-        modifier = Modifier
-          .size(230.dp)
-          .border(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-            shape = CircleShape
-          )
-      )
+      // Subtle Circular Progress Indicator
+      Canvas(modifier = Modifier.size(240.dp)) {
+        // Track
+        drawCircle(
+          color = trackColor,
+          style = Stroke(width = 1.5.dp.toPx())
+        )
+        // Active Progress Arc
+        drawArc(
+          color = indicatorColor,
+          startAngle = -90f,
+          sweepAngle = progressAnim.value * 360f,
+          useCenter = false,
+          style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        )
+      }
 
-      // Dynamic breathing sphere
+      // Minimal flat breathing sphere (no gradients, lightweight)
       Box(
         modifier = Modifier
-          .size(230.dp)
+          .size(240.dp)
           .scale(orbScale.value)
           .clip(CircleShape)
-          .background(
-            MaterialTheme.colorScheme.secondary.copy(alpha = orbAlpha.value * 0.22f)
-          )
+          .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f))
           .border(
-            width = 2.dp,
-            color = MaterialTheme.colorScheme.secondary.copy(alpha = orbAlpha.value),
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
             shape = CircleShape
           )
       )
 
-      // Inner text indicators
+      // Current Phase Display
       Column(
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
         Text(
-          text = currentPhase.label.uppercase(),
-          style = MaterialTheme.typography.titleMedium,
+          text = currentPhase.label,
+          style = MaterialTheme.typography.headlineMedium,
           color = MaterialTheme.colorScheme.onBackground,
-          fontWeight = FontWeight.SemiBold,
-          letterSpacing = 2.5.sp,
-          fontSize = 14.sp
+          fontWeight = FontWeight.Normal,
+          fontSize = 28.sp,
+          letterSpacing = 0.5.sp
         )
 
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
           text = "${secondsLeftInPhase}s",
-          style = MaterialTheme.typography.bodyLarge,
+          style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
-          fontWeight = FontWeight.Light,
-          fontSize = 18.sp
+          fontSize = 15.sp
         )
       }
     }
-
-    Spacer(modifier = Modifier.height(40.dp))
-
-    Text(
-      text = when (currentPhase) {
-        BreathingPhase.INHALE -> "Deep inhale through your nose"
-        BreathingPhase.HOLD -> "Gentle still pause"
-        BreathingPhase.EXHALE -> "Slow, complete release"
-      },
-      style = MaterialTheme.typography.bodyLarge,
-      color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-      fontSize = 15.sp,
-      textAlign = TextAlign.Center
-    )
   }
 }
 
 @Composable
-private fun IntentionStep(
+private fun IntentionScreen(
   currentAction: String,
   onActionChange: (String) -> Unit,
   onContinue: () -> Unit,
@@ -397,13 +392,14 @@ private fun IntentionStep(
       style = MaterialTheme.typography.headlineLarge,
       color = MaterialTheme.colorScheme.onBackground,
       textAlign = TextAlign.Center,
-      fontWeight = FontWeight.Light,
+      fontWeight = FontWeight.Normal,
       fontSize = 30.sp,
-      lineHeight = 38.sp
+      lineHeight = 40.sp
     )
 
-    Spacer(modifier = Modifier.height(40.dp))
+    Spacer(modifier = Modifier.height(44.dp))
 
+    // Minimal single text field
     OutlinedTextField(
       value = currentAction,
       onValueChange = onActionChange,
@@ -412,18 +408,19 @@ private fun IntentionStep(
         .testTag("action_text_field"),
       placeholder = {
         Text(
-          text = "Enter your intention...",
-          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+          text = "Type your intention...",
+          color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+          fontSize = 16.sp
         )
       },
       singleLine = true,
-      shape = RoundedCornerShape(16.dp),
+      shape = RoundedCornerShape(14.dp),
       colors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = MaterialTheme.colorScheme.primary,
-        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+        focusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
         focusedTextColor = MaterialTheme.colorScheme.onBackground,
         unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-        cursorColor = MaterialTheme.colorScheme.primary
+        cursorColor = MaterialTheme.colorScheme.onBackground
       ),
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
       keyboardActions = KeyboardActions(
@@ -434,7 +431,7 @@ private fun IntentionStep(
       )
     )
 
-    Spacer(modifier = Modifier.height(32.dp))
+    Spacer(modifier = Modifier.height(36.dp))
 
     Button(
       onClick = {
@@ -442,30 +439,31 @@ private fun IntentionStep(
         onContinue()
       },
       modifier = Modifier
-        .fillMaxWidth(0.6f)
+        .width(180.dp)
         .height(52.dp)
         .testTag("continue_button"),
       shape = RoundedCornerShape(999.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary
-      )
+      ),
+      elevation = null
     ) {
       Text(
         text = "Continue",
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Medium,
-        fontSize = 17.sp,
-        letterSpacing = 0.5.sp
+        fontSize = 16.sp,
+        letterSpacing = 0.6.sp
       )
     }
   }
 }
 
 @Composable
-private fun ResolveStep(
+private fun ConfirmationScreen(
   userAction: String,
-  onReset: () -> Unit,
+  onGo: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   Column(
@@ -477,17 +475,17 @@ private fun ResolveStep(
       style = MaterialTheme.typography.headlineLarge,
       color = MaterialTheme.colorScheme.onBackground,
       textAlign = TextAlign.Center,
-      fontWeight = FontWeight.Light,
+      fontWeight = FontWeight.Normal,
       fontSize = 32.sp,
       lineHeight = 42.sp
     )
 
     if (userAction.isNotBlank()) {
-      Spacer(modifier = Modifier.height(24.dp))
+      Spacer(modifier = Modifier.height(28.dp))
       Text(
-        text = "“$userAction”",
+        text = userAction,
         style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.secondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         fontSize = 18.sp,
         lineHeight = 26.sp
@@ -496,23 +494,26 @@ private fun ResolveStep(
 
     Spacer(modifier = Modifier.height(64.dp))
 
-    OutlinedButton(
-      onClick = onReset,
+    Button(
+      onClick = onGo,
       modifier = Modifier
-        .height(44.dp)
+        .width(180.dp)
+        .height(52.dp)
+        .testTag("go_button")
         .testTag("reset_button"),
       shape = RoundedCornerShape(999.dp),
-      border = ButtonDefaults.outlinedButtonBorder.copy(
-        brush = androidx.compose.ui.graphics.SolidColor(
-          MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-        )
-      )
+      colors = ButtonDefaults.buttonColors(
+        containerColor = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
+      ),
+      elevation = null
     ) {
       Text(
-        text = "Start again",
+        text = "Go",
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 14.sp
+        fontWeight = FontWeight.Medium,
+        fontSize = 16.sp,
+        letterSpacing = 0.6.sp
       )
     }
   }
@@ -530,4 +531,5 @@ fun DeliberateAppPreview() {
     DeliberateApp()
   }
 }
+
 
