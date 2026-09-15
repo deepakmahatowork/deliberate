@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -69,7 +72,8 @@ enum class DeliberateState {
   HOME,
   BREATHING,
   INTENTION,
-  CONFIRMATION
+  CONFIRMATION,
+  SETTINGS
 }
 
 enum class BreathingPhase(val label: String, val totalSeconds: Int) {
@@ -81,6 +85,7 @@ enum class BreathingPhase(val label: String, val totalSeconds: Int) {
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    ReminderReceiver.createNotificationChannel(this)
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
@@ -117,36 +122,55 @@ fun DeliberateApp(modifier: Modifier = Modifier) {
       },
       label = "deliberate_state_transition"
     ) { state ->
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .widthIn(max = 440.dp)
-          .padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-      ) {
-        when (state) {
-          DeliberateState.HOME -> {
-            HomeScreen(
-              onPause = { currentState = DeliberateState.BREATHING }
-            )
-          }
+      when (state) {
+        DeliberateState.HOME -> {
+          HomeScreen(
+            onPause = { currentState = DeliberateState.BREATHING },
+            onOpenSettings = { currentState = DeliberateState.SETTINGS }
+          )
+        }
 
-          DeliberateState.BREATHING -> {
+        DeliberateState.BREATHING -> {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .widthIn(max = 440.dp)
+              .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+          ) {
             BreathingScreen(
               onFinished = { currentState = DeliberateState.INTENTION }
             )
           }
+        }
 
-          DeliberateState.INTENTION -> {
+        DeliberateState.INTENTION -> {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .widthIn(max = 440.dp)
+              .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+          ) {
             IntentionScreen(
               currentAction = userAction,
               onActionChange = { userAction = it },
               onContinue = { currentState = DeliberateState.CONFIRMATION }
             )
           }
+        }
 
-          DeliberateState.CONFIRMATION -> {
+        DeliberateState.CONFIRMATION -> {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .widthIn(max = 440.dp)
+              .padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+          ) {
             ConfirmationScreen(
               userAction = userAction,
               onGo = {
@@ -156,6 +180,12 @@ fun DeliberateApp(modifier: Modifier = Modifier) {
             )
           }
         }
+
+        DeliberateState.SETTINGS -> {
+          SettingsScreen(
+            onBack = { currentState = DeliberateState.HOME }
+          )
+        }
       }
     }
   }
@@ -164,72 +194,100 @@ fun DeliberateApp(modifier: Modifier = Modifier) {
 @Composable
 private fun HomeScreen(
   onPause: () -> Unit,
+  onOpenSettings: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  Column(
-    modifier = modifier.fillMaxWidth(),
-    horizontalAlignment = Alignment.CenterHorizontally
+  Box(
+    modifier = modifier.fillMaxSize()
   ) {
-    // Subtle Eyebrow Label
-    Text(
-      text = "BEFORE YOU USE",
-      style = MaterialTheme.typography.labelLarge,
-      color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-      fontSize = 12.sp,
-      fontWeight = FontWeight.Medium,
-      letterSpacing = 2.8.sp,
-      textAlign = TextAlign.Center
-    )
-
-    Spacer(modifier = Modifier.height(28.dp))
-
-    // Main Question
-    Text(
-      text = "Do I really need my phone?",
-      style = MaterialTheme.typography.headlineLarge,
-      color = MaterialTheme.colorScheme.onBackground,
-      textAlign = TextAlign.Center,
-      fontWeight = FontWeight.Normal,
-      fontSize = 32.sp,
-      lineHeight = 42.sp
-    )
-
-    Spacer(modifier = Modifier.height(36.dp))
-
-    // Mindfulness Stanza
-    Text(
-      text = "Breathe.\nNotice.\nChoose.",
-      style = MaterialTheme.typography.bodyLarge,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      textAlign = TextAlign.Center,
-      lineHeight = 36.sp,
-      fontSize = 19.sp,
-      letterSpacing = 0.5.sp
-    )
-
-    Spacer(modifier = Modifier.height(64.dp))
-
-    // Obvious Primary Action Button
-    Button(
-      onClick = onPause,
+    // Discreet Settings Button
+    Box(
       modifier = Modifier
-        .width(180.dp)
-        .height(52.dp)
-        .testTag("pause_button"),
-      shape = RoundedCornerShape(999.dp),
-      colors = ButtonDefaults.buttonColors(
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary
-      ),
-      elevation = null
+        .align(Alignment.TopEnd)
+        .padding(top = 16.dp, end = 20.dp)
+        .size(48.dp)
+        .clip(CircleShape)
+        .clickable(onClick = onOpenSettings)
+        .testTag("settings_button"),
+      contentAlignment = Alignment.Center
     ) {
-      Text(
-        text = "Pause",
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
-        letterSpacing = 0.6.sp
+      Icon(
+        painter = painterResource(id = R.drawable.ic_settings),
+        contentDescription = "Settings",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier.size(22.dp)
       )
+    }
+
+    Column(
+      modifier = Modifier
+        .align(Alignment.Center)
+        .fillMaxWidth()
+        .widthIn(max = 440.dp)
+        .padding(horizontal = 32.dp),
+      horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+      // Subtle Eyebrow Label
+      Text(
+        text = "BEFORE YOU USE",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 2.8.sp,
+        textAlign = TextAlign.Center
+      )
+
+      Spacer(modifier = Modifier.height(28.dp))
+
+      // Main Question
+      Text(
+        text = "Do I really need my phone?",
+        style = MaterialTheme.typography.headlineLarge,
+        color = MaterialTheme.colorScheme.onBackground,
+        textAlign = TextAlign.Center,
+        fontWeight = FontWeight.Normal,
+        fontSize = 32.sp,
+        lineHeight = 42.sp
+      )
+
+      Spacer(modifier = Modifier.height(36.dp))
+
+      // Mindfulness Stanza
+      Text(
+        text = "Breathe.\nNotice.\nChoose.",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        lineHeight = 36.sp,
+        fontSize = 19.sp,
+        letterSpacing = 0.5.sp
+      )
+
+      Spacer(modifier = Modifier.height(64.dp))
+
+      // Obvious Primary Action Button
+      Button(
+        onClick = onPause,
+        modifier = Modifier
+          .width(180.dp)
+          .height(52.dp)
+          .testTag("pause_button"),
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.buttonColors(
+          containerColor = MaterialTheme.colorScheme.primary,
+          contentColor = MaterialTheme.colorScheme.onPrimary
+        ),
+        elevation = null
+      ) {
+        Text(
+          text = "Pause",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.Medium,
+          fontSize = 16.sp,
+          letterSpacing = 0.6.sp
+        )
+      }
     }
   }
 }
