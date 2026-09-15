@@ -1,0 +1,6 @@
+{
+  "name": "Deliberate",
+  "description": "A simple single-screen prototype prompting mindful, deliberate phone usage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
