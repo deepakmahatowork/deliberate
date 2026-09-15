@@ -112,5 +112,124 @@ class ExampleRobolectricTest {
     val expectedNext = testNow + 60 * 60 * 1000L
     assertEquals(expectedNext, nextTrigger)
   }
+
+  @Test
+  fun `verify overlay gate settings defaults and cooldown logic`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    OverlayPreferences.resetCooldown(context)
+    OverlayPreferences.saveGateEnabled(context, false)
+    OverlayPreferences.saveCooldownMinutes(context, 15)
+
+    val defaultSettings = OverlayPreferences.load(context)
+    assertEquals(false, defaultSettings.isGateEnabled)
+    assertEquals(15, defaultSettings.cooldownMinutes)
+
+    // Cooldown is not active when gate is disabled
+    val now = 1000000L
+    assertEquals(false, OverlayPreferences.isCooldownActive(context, now))
+
+    // Enable gate and complete intervention
+    OverlayPreferences.saveGateEnabled(context, true)
+    OverlayPreferences.markInterventionCompleted(context, now)
+
+    // Cooldown active after 5 minutes (300,000 ms)
+    assertEquals(true, OverlayPreferences.isCooldownActive(context, now + 5 * 60 * 1000L))
+    // Cooldown expired after 16 minutes (960,000 ms)
+    assertEquals(false, OverlayPreferences.isCooldownActive(context, now + 16 * 60 * 1000L))
+
+    // Remaining seconds calculation
+    val remaining = OverlayPreferences.getRemainingCooldownSeconds(context, now + 5 * 60 * 1000L)
+    assertEquals(10 * 60L, remaining)
+  }
+
+  @Test
+  fun `verify intervention gate flow step 1 question and nothing button`() {
+    var dismissed = false
+    var locked = false
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        InterventionGateFlow(
+          onDismissAndContinue = { dismissed = true },
+          onLockDevice = { locked = true }
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithText("BEFORE YOU USE").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Do I really need my phone?").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("intervention_pause_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nothing_button_step1").assertIsDisplayed()
+
+    // Tapping Nothing triggers lock
+    composeTestRule.onNodeWithTag("nothing_button_step1").performClick()
+    assertEquals(true, locked)
+    assertEquals(false, dismissed)
+  }
+
+  @Test
+  fun `verify intervention gate pause moves to breathing with nothing button`() {
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        InterventionGateFlow(
+          onDismissAndContinue = {},
+          onLockDevice = {}
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithTag("intervention_pause_button").performClick()
+    composeTestRule.onNodeWithText("Take one breath.").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("intervention_breathing_circle").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nothing_button_step2").assertIsDisplayed()
+  }
+
+  @Test
+  fun `verify settings screen shows deliberate gate section and options`() {
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        DeliberateApp()
+      }
+    }
+
+    // Go to Settings
+    composeTestRule.onNodeWithTag("settings_button").performClick()
+
+    // Verify Deliberate Gate section
+    composeTestRule.onNodeWithText("DELIBERATE GATE").assertExists()
+    composeTestRule.onNodeWithText("Intervention Gate").assertExists()
+    composeTestRule.onNodeWithTag("gate_switch").assertExists()
+    composeTestRule.onNodeWithText("Intervention Cooldown").assertExists()
+    composeTestRule.onNodeWithTag("cooldown_15").assertExists()
+    composeTestRule.onNodeWithTag("accessibility_service_status").assertExists()
+    composeTestRule.onNodeWithTag("overlay_permission_status").assertExists()
+    composeTestRule.onNodeWithTag("device_admin_status").assertExists()
+    composeTestRule.onNodeWithTag("test_intervention_button").assertExists()
+  }
+
+  @Test
+  fun `verify repeated 20 intervention transitions execute smoothly`() {
+    var lockedCount = 0
+    val iteration = androidx.compose.runtime.mutableIntStateOf(0)
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        androidx.compose.runtime.key(iteration.intValue) {
+          InterventionGateFlow(
+            onDismissAndContinue = {},
+            onLockDevice = {
+              lockedCount++
+              iteration.intValue++
+            }
+          )
+        }
+      }
+    }
+
+    for (i in 1..20) {
+      composeTestRule.onNodeWithTag("nothing_button_step1").performClick()
+      assertEquals(i, lockedCount)
+    }
+  }
 }
 

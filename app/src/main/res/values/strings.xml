@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Deliberate</string>
+    <string name="accessibility_service_description">Enables the Deliberate Use Gate when unlocking the phone and allows instant device locking when tapping Nothing.</string>
+    <string name="device_admin_description">Allows Deliberate to lock the phone when you tap Nothing.</string>
 </resources>

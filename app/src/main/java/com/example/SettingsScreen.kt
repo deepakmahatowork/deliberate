@@ -1,11 +1,18 @@
 package com.example
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.TimePickerDialog
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings as AndroidSettings
 import android.text.format.DateFormat
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,13 +35,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +58,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @Composable
 fun SettingsScreen(
@@ -57,6 +70,43 @@ fun SettingsScreen(
   val context = LocalContext.current
   var settings by remember { mutableStateOf(ReminderPreferences.load(context)) }
   var showPermissionRationale by remember { mutableStateOf(false) }
+
+  var gateSettings by remember { mutableStateOf(OverlayPreferences.load(context)) }
+  var showGateExplanationDialog by remember { mutableStateOf(false) }
+  var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+  var hasOverlayPermission by remember { mutableStateOf(canDrawOverlays(context)) }
+  var isDeviceAdminOn by remember { mutableStateOf(isDeviceAdminActive(context)) }
+
+  val lifecycleOwner = LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        isAccessibilityEnabled = isAccessibilityServiceEnabled(context)
+        hasOverlayPermission = canDrawOverlays(context)
+        isDeviceAdminOn = isDeviceAdminActive(context)
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
+
+  val handleToggleGate: (Boolean) -> Unit = { shouldEnable ->
+    if (shouldEnable) {
+      if (!isAccessibilityEnabled) {
+        showGateExplanationDialog = true
+      } else {
+        val updated = gateSettings.copy(isGateEnabled = true)
+        gateSettings = updated
+        OverlayPreferences.saveGateEnabled(context, true)
+      }
+    } else {
+      val updated = gateSettings.copy(isGateEnabled = false)
+      gateSettings = updated
+      OverlayPreferences.saveGateEnabled(context, false)
+    }
+  }
 
   val permissionLauncher = rememberLauncherForActivityResult(
     ActivityResultContracts.RequestPermission()
@@ -142,6 +192,51 @@ fun SettingsScreen(
           modifier = Modifier.testTag("permission_dismiss_button")
         ) {
           Text("Not now", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      },
+      containerColor = MaterialTheme.colorScheme.surface,
+      shape = RoundedCornerShape(18.dp)
+    )
+  }
+
+  if (showGateExplanationDialog) {
+    AlertDialog(
+      onDismissRequest = { showGateExplanationDialog = false },
+      title = {
+        Text(
+          text = "Deliberate Gate Setup",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold
+        )
+      },
+      text = {
+        Text(
+          text = "To pause you when unlocking your phone and allow the 'Nothing' button to lock the device safely without draining battery, Deliberate needs Accessibility Service access.\n\nDeliberate runs completely dormant, never tracks typing or observes personal screen content, and only activates after you unlock.",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          lineHeight = 22.sp
+        )
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showGateExplanationDialog = false
+            val intent = Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+          },
+          modifier = Modifier.testTag("gate_dialog_open_settings_button")
+        ) {
+          Text("Open Settings", color = MaterialTheme.colorScheme.onBackground)
+        }
+      },
+      dismissButton = {
+        TextButton(
+          onClick = { showGateExplanationDialog = false },
+          modifier = Modifier.testTag("gate_dialog_cancel_button")
+        ) {
+          Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       },
       containerColor = MaterialTheme.colorScheme.surface,
@@ -398,8 +493,314 @@ fun SettingsScreen(
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
+
+      Spacer(modifier = Modifier.height(32.dp))
+      HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+        thickness = 1.dp
+      )
+      Spacer(modifier = Modifier.height(32.dp))
+
+      // Section Header: DELIBERATE GATE
+      Text(
+        text = "DELIBERATE GATE",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 2.4.sp
+      )
+
+      Spacer(modifier = Modifier.height(20.dp))
+
+      // Gate ON / OFF Switch
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Intervention Gate",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Normal,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onBackground
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = if (gateSettings.isGateEnabled) "ON" else "OFF",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp
+          )
+        }
+
+        Switch(
+          checked = gateSettings.isGateEnabled,
+          onCheckedChange = handleToggleGate,
+          modifier = Modifier.testTag("gate_switch"),
+          colors = SwitchDefaults.colors(
+            checkedThumbColor = MaterialTheme.colorScheme.primary,
+            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surface
+          )
+        )
+      }
+
+      Spacer(modifier = Modifier.height(16.dp))
+      HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+        thickness = 1.dp
+      )
+      Spacer(modifier = Modifier.height(24.dp))
+
+      // Cooldown Section
+      Text(
+        text = "Intervention Cooldown",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Normal,
+        fontSize = 17.sp,
+        color = MaterialTheme.colorScheme.onBackground
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = "Normal phone use continues during cooldown.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+        fontSize = 13.sp
+      )
+
+      Spacer(modifier = Modifier.height(14.dp))
+
+      val cooldownOptions = listOf(5, 15, 30, 60)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        cooldownOptions.forEach { minutes ->
+          val isSelected = gateSettings.cooldownMinutes == minutes
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .height(46.dp)
+              .clip(RoundedCornerShape(12.dp))
+              .border(
+                width = 1.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+              )
+              .background(
+                if (isSelected) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surface
+              )
+              .clickable {
+                val updated = gateSettings.copy(cooldownMinutes = minutes)
+                gateSettings = updated
+                OverlayPreferences.saveCooldownMinutes(context, minutes)
+              }
+              .testTag("cooldown_$minutes"),
+            contentAlignment = Alignment.Center
+          ) {
+            Text(
+              text = "$minutes min",
+              fontSize = 13.sp,
+              fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+              color = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(24.dp))
+      HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+        thickness = 1.dp
+      )
+      Spacer(modifier = Modifier.height(20.dp))
+
+      // Capabilities & Permissions
+      // 1. Accessibility Service
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable {
+            val intent = Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+          }
+          .padding(vertical = 10.dp)
+          .testTag("accessibility_service_status"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Accessibility Service",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 16.sp
+          )
+          Text(
+            text = "Event-driven unlock detection & device lock",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+        }
+        Text(
+          text = if (isAccessibilityEnabled) "Active" else "Setup →",
+          style = MaterialTheme.typography.labelMedium,
+          color = if (isAccessibilityEnabled) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.primary,
+          fontWeight = FontWeight.Medium
+        )
+      }
+
+      // 2. Overlay Permission
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+              val intent = Intent(
+                AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${context.packageName}")
+              ).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+              }
+              context.startActivity(intent)
+            }
+          }
+          .padding(vertical = 10.dp)
+          .testTag("overlay_permission_status"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Display Over Other Apps",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 16.sp
+          )
+          Text(
+            text = "Allows intervention screen above other apps",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+        }
+        Text(
+          text = if (hasOverlayPermission) "Granted" else "Setup →",
+          style = MaterialTheme.typography.labelMedium,
+          color = if (hasOverlayPermission) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.primary,
+          fontWeight = FontWeight.Medium
+        )
+      }
+
+      // 3. Device Admin (Optional Fallback)
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable {
+            val adminComponent = ComponentName(context, DeliberateDeviceAdminReceiver::class.java)
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+              putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+              putExtra(
+                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Allows Deliberate to lock the phone when you tap Nothing."
+              )
+              flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+          }
+          .padding(vertical = 10.dp)
+          .testTag("device_admin_status"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Device Admin (Optional)",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 16.sp
+          )
+          Text(
+            text = "Alternative lock mechanism",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp
+          )
+        }
+        Text(
+          text = if (isDeviceAdminOn) "Active" else "Setup →",
+          style = MaterialTheme.typography.labelMedium,
+          color = if (isDeviceAdminOn) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
+          fontWeight = FontWeight.Normal
+        )
+      }
+
+      Spacer(modifier = Modifier.height(28.dp))
+
+      // Test Intervention Gate Button
+      OutlinedButton(
+        onClick = {
+          val intent = Intent(context, InterventionActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+          }
+          context.startActivity(intent)
+        },
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(48.dp)
+          .testTag("test_intervention_button"),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+          contentColor = MaterialTheme.colorScheme.onBackground
+        )
+      ) {
+        Text(
+          text = "Test Intervention Gate",
+          style = MaterialTheme.typography.labelLarge,
+          fontWeight = FontWeight.Medium,
+          fontSize = 15.sp
+        )
+      }
+
+      Spacer(modifier = Modifier.height(24.dp))
     }
   }
+}
+
+private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+  if (DeliberateAccessibilityService.isServiceActive()) return true
+  val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager ?: return false
+  val enabledServices = am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_GENERIC)
+  for (service in enabledServices) {
+    if (service.resolveInfo.serviceInfo.packageName == context.packageName) {
+      return true
+    }
+  }
+  return false
+}
+
+private fun canDrawOverlays(context: Context): Boolean {
+  return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+    AndroidSettings.canDrawOverlays(context)
+  } else {
+    true
+  }
+}
+
+private fun isDeviceAdminActive(context: Context): Boolean {
+  val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+  val adminComponent = ComponentName(context, DeliberateDeviceAdminReceiver::class.java)
+  return dpm?.isAdminActive(adminComponent) == true
 }
 
 private fun showTimePicker(
