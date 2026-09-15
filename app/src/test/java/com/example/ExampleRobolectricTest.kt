@@ -240,7 +240,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `verify question step displays breathe hold exhale directly`() {
+  fun `verify question step displays whatsapp and phone shortcuts`() {
     composeTestRule.setContent {
       MyApplicationTheme {
         InterventionGateFlow(
@@ -251,8 +251,8 @@ class ExampleRobolectricTest {
     }
 
     composeTestRule.onNodeWithText("Do I really need my phone?").assertIsDisplayed()
-    composeTestRule.onNodeWithText("Breathe · Hold · Exhale").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("intervention_question_breathing_circle").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("whatsapp_fast_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("phone_fast_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("intervention_pause_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("nothing_button_step1").assertIsDisplayed()
   }

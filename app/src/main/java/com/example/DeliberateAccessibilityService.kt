@@ -165,11 +165,15 @@ class DeliberateAccessibilityService : AccessibilityService() {
       val eventPackage = event.packageName?.toString() ?: ""
       if (eventPackage.isNotEmpty() && eventPackage != packageName) {
         val lowerPkg = eventPackage.lowercase()
-        // Allow critical emergency & phone dialer calls
+        // Allow critical emergency, phone calls, and WhatsApp without obstruction
         if (!lowerPkg.contains("emergency") &&
           !lowerPkg.contains("telecom") &&
           !lowerPkg.contains("incallui") &&
-          !lowerPkg.contains("dialer")
+          !lowerPkg.contains("dialer") &&
+          !lowerPkg.contains("phone") &&
+          !lowerPkg.contains("whatsapp") &&
+          !lowerPkg.contains("contacts") &&
+          !lowerPkg.contains("messaging")
         ) {
           android.util.Log.d("DeliberateAccessibility", "Sticky gate active: intercepting attempt to switch to $eventPackage")
           GateLockState.relaunchStickyGate(this)
@@ -191,7 +195,7 @@ class DeliberateAccessibilityService : AccessibilityService() {
     // 3. Debounce: Do not trigger repeatedly within 3 seconds
     if (now - lastTriggerTime < 3000L) return
 
-    // 4. Exclude Deliberate itself and critical system interfaces (emergency, dialer, keyguard)
+    // 4. Exclude Deliberate itself and critical system interfaces (emergency, dialer, phone, WhatsApp)
     val eventPackage = event.packageName?.toString() ?: ""
     if (eventPackage.isEmpty() || eventPackage == packageName) return
 
@@ -200,6 +204,10 @@ class DeliberateAccessibilityService : AccessibilityService() {
       lowerPkg.contains("telecom") ||
       lowerPkg.contains("incallui") ||
       lowerPkg.contains("dialer") ||
+      lowerPkg.contains("phone") ||
+      lowerPkg.contains("whatsapp") ||
+      lowerPkg.contains("contacts") ||
+      lowerPkg.contains("messaging") ||
       lowerPkg.contains("keyguard")
     ) {
       return

@@ -2,6 +2,8 @@ package com.example
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -25,6 +27,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -191,6 +194,13 @@ fun InterventionGateFlow(
 ) {
   var currentStep by remember { mutableStateOf(InterventionStep.QUESTION) }
   var userAction by remember { mutableStateOf("") }
+  var inactivityKey by remember { mutableIntStateOf(0) }
+
+  // Auto-close / lock device after 20 seconds if no action is taken
+  LaunchedEffect(currentStep, userAction, inactivityKey) {
+    delay(20000L)
+    onLockDevice()
+  }
 
   // Prevent back gesture from escaping to home or other apps without clicking buttons
   BackHandler(enabled = true) {
@@ -221,14 +231,21 @@ fun InterventionGateFlow(
         when (step) {
           InterventionStep.QUESTION -> {
             InterventionQuestionStep(
-              onPause = { currentStep = InterventionStep.BREATHING },
-              onNothing = onLockDevice
+              onPause = {
+                currentStep = InterventionStep.BREATHING
+                inactivityKey++
+              },
+              onNothing = onLockDevice,
+              onDismissAndContinue = onDismissAndContinue
             )
           }
 
           InterventionStep.BREATHING -> {
             InterventionBreathingStep(
-              onFinished = { currentStep = InterventionStep.INTENTION },
+              onFinished = {
+                currentStep = InterventionStep.INTENTION
+                inactivityKey++
+              },
               onNothing = onLockDevice
             )
           }
@@ -236,9 +253,16 @@ fun InterventionGateFlow(
           InterventionStep.INTENTION -> {
             InterventionIntentionStep(
               currentAction = userAction,
-              onActionChange = { userAction = it },
-              onContinue = { currentStep = InterventionStep.CONFIRMATION },
-              onNothing = onLockDevice
+              onActionChange = {
+                userAction = it
+                inactivityKey++
+              },
+              onContinue = {
+                // Clicking GO answers why and exits/closes the app immediately
+                onDismissAndContinue()
+              },
+              onNothing = onLockDevice,
+              onInteract = { inactivityKey++ }
             )
           }
 
@@ -259,72 +283,10 @@ fun InterventionGateFlow(
 private fun InterventionQuestionStep(
   onPause: () -> Unit,
   onNothing: () -> Unit,
+  onDismissAndContinue: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  var currentPhase by remember { mutableStateOf(BreathingPhase.INHALE) }
-  var secondsLeftInPhase by remember { mutableIntStateOf(BreathingPhase.INHALE.totalSeconds) }
-
-  val orbScale = remember { Animatable(0.44f) }
-  val progressAnim = remember { Animatable(0f) }
-
-  LaunchedEffect(Unit) {
-    while (true) {
-      progressAnim.snapTo(0f)
-      launch {
-        progressAnim.animateTo(
-          targetValue = 1f,
-          animationSpec = tween(durationMillis = 12000, easing = LinearEasing)
-        )
-      }
-
-      // Phase 1: Inhale (4s)
-      currentPhase = BreathingPhase.INHALE
-      val inhaleCountdown = launch {
-        for (s in 4 downTo 1) {
-          secondsLeftInPhase = s
-          delay(1000L)
-        }
-      }
-      launch {
-        orbScale.animateTo(
-          targetValue = 1.0f,
-          animationSpec = tween(durationMillis = 4000, easing = EaseInOutCubic)
-        )
-      }
-      inhaleCountdown.join()
-
-      // Phase 2: Hold (2s)
-      currentPhase = BreathingPhase.HOLD
-      val holdCountdown = launch {
-        for (s in 2 downTo 1) {
-          secondsLeftInPhase = s
-          delay(1000L)
-        }
-      }
-      holdCountdown.join()
-
-      // Phase 3: Exhale (6s)
-      currentPhase = BreathingPhase.EXHALE
-      val exhaleCountdown = launch {
-        for (s in 6 downTo 1) {
-          secondsLeftInPhase = s
-          delay(1000L)
-        }
-      }
-      launch {
-        orbScale.animateTo(
-          targetValue = 0.44f,
-          animationSpec = tween(durationMillis = 6000, easing = EaseInOutCubic)
-        )
-      }
-      exhaleCountdown.join()
-
-      delay(300L)
-    }
-  }
-
-  val trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-  val indicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
+  val context = androidx.compose.ui.platform.LocalContext.current
 
   Column(
     modifier = modifier.fillMaxWidth(),
@@ -352,76 +314,65 @@ private fun InterventionQuestionStep(
       lineHeight = 36.sp
     )
 
-    Spacer(modifier = Modifier.height(6.dp))
+    Spacer(modifier = Modifier.height(32.dp))
 
-    Text(
-      text = "Breathe · Hold · Exhale",
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-      textAlign = TextAlign.Center,
-      fontSize = 14.sp,
-      letterSpacing = 0.8.sp,
-      fontWeight = FontWeight.Medium
-    )
-
-    Spacer(modifier = Modifier.height(20.dp))
-
-    // Breathing circle embedded right on the question screen
-    Box(
-      modifier = Modifier
-        .size(190.dp)
-        .testTag("intervention_question_breathing_circle"),
-      contentAlignment = Alignment.Center
+    // Fast-access WhatsApp & Phone shortcut buttons
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+      verticalAlignment = Alignment.CenterVertically
     ) {
-      Canvas(modifier = Modifier.size(190.dp)) {
-        drawCircle(
-          color = trackColor,
-          style = Stroke(width = 1.5.dp.toPx())
-        )
-        drawArc(
-          color = indicatorColor,
-          startAngle = -90f,
-          sweepAngle = progressAnim.value * 360f,
-          useCenter = false,
-          style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-        )
+      // WhatsApp shortcut
+      OutlinedButton(
+        onClick = {
+          try {
+            val intent = context.packageManager.getLaunchIntentForPackage("com.whatsapp")
+              ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com"))
+            context.startActivity(intent)
+            onDismissAndContinue()
+          } catch (e: Exception) {
+            Toast.makeText(context, "WhatsApp not found", Toast.LENGTH_SHORT).show()
+          }
+        },
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+          containerColor = MaterialTheme.colorScheme.surface,
+          contentColor = MaterialTheme.colorScheme.onBackground
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
+        modifier = Modifier
+          .height(48.dp)
+          .testTag("whatsapp_fast_button")
+      ) {
+        Text("💬 WhatsApp", fontSize = 15.sp, fontWeight = FontWeight.Medium)
       }
 
-      Box(
+      // Phone dialer shortcut
+      OutlinedButton(
+        onClick = {
+          try {
+            val intent = Intent(Intent.ACTION_DIAL)
+            context.startActivity(intent)
+            onDismissAndContinue()
+          } catch (e: Exception) {
+            Toast.makeText(context, "Phone dialer not available", Toast.LENGTH_SHORT).show()
+          }
+        },
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+          containerColor = MaterialTheme.colorScheme.surface,
+          contentColor = MaterialTheme.colorScheme.onBackground
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
         modifier = Modifier
-          .size(190.dp)
-          .scale(orbScale.value)
-          .clip(CircleShape)
-          .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f))
-          .border(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-            shape = CircleShape
-          )
-      )
-
-      Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-          text = currentPhase.label,
-          style = MaterialTheme.typography.headlineMedium,
-          color = MaterialTheme.colorScheme.onBackground,
-          fontWeight = FontWeight.Normal,
-          fontSize = 24.sp,
-          letterSpacing = 0.5.sp
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-          text = "${secondsLeftInPhase}s",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          fontSize = 14.sp
-        )
+          .height(48.dp)
+          .testTag("phone_fast_button")
+      ) {
+        Text("📞 Phone Call", fontSize = 15.sp, fontWeight = FontWeight.Medium)
       }
     }
 
-    Spacer(modifier = Modifier.height(28.dp))
+    Spacer(modifier = Modifier.height(40.dp))
 
     Button(
       onClick = onPause,
@@ -437,7 +388,7 @@ private fun InterventionQuestionStep(
       elevation = null
     ) {
       Text(
-        text = "Pause",
+        text = "Pause / Reflect",
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Medium,
         fontSize = 16.sp,
@@ -445,7 +396,7 @@ private fun InterventionQuestionStep(
       )
     }
 
-    Spacer(modifier = Modifier.height(14.dp))
+    Spacer(modifier = Modifier.height(16.dp))
 
     NothingButton(onClick = onNothing, testTag = "nothing_button_step1")
   }
@@ -603,6 +554,7 @@ private fun InterventionIntentionStep(
   onActionChange: (String) -> Unit,
   onContinue: () -> Unit,
   onNothing: () -> Unit,
+  onInteract: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   val focusManager = LocalFocusManager.current
@@ -621,19 +573,60 @@ private fun InterventionIntentionStep(
       lineHeight = 40.sp
     )
 
-    Spacer(modifier = Modifier.height(44.dp))
+    Spacer(modifier = Modifier.height(28.dp))
+
+    // Quick selection buttons: News : Whatsapp : GPT
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      listOf("News", "WhatsApp", "GPT").forEach { option ->
+        val isSelected = currentAction.equals(option, ignoreCase = true)
+        OutlinedButton(
+          onClick = {
+            onActionChange(option)
+            onInteract()
+          },
+          shape = RoundedCornerShape(999.dp),
+          colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onBackground
+          ),
+          border = BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+          ),
+          modifier = Modifier
+            .height(42.dp)
+            .testTag("intention_chip_$option")
+        ) {
+          Text(
+            text = option,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onBackground
+          )
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(20.dp))
 
     OutlinedTextField(
       value = currentAction,
-      onValueChange = onActionChange,
+      onValueChange = {
+        onActionChange(it)
+        onInteract()
+      },
       modifier = Modifier
         .fillMaxWidth()
         .testTag("intervention_action_text_field"),
       placeholder = {
         Text(
-          text = "Type your intention...",
+          text = "Type intention (or select above)...",
           color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-          fontSize = 16.sp
+          fontSize = 15.sp
         )
       },
       singleLine = true,
@@ -654,7 +647,7 @@ private fun InterventionIntentionStep(
       )
     )
 
-    Spacer(modifier = Modifier.height(36.dp))
+    Spacer(modifier = Modifier.height(32.dp))
 
     Button(
       onClick = {
@@ -664,7 +657,7 @@ private fun InterventionIntentionStep(
       modifier = Modifier
         .width(200.dp)
         .height(52.dp)
-        .testTag("intervention_continue_button"),
+        .testTag("intervention_go_button"),
       shape = RoundedCornerShape(999.dp),
       colors = ButtonDefaults.buttonColors(
         containerColor = MaterialTheme.colorScheme.primary,
@@ -673,11 +666,11 @@ private fun InterventionIntentionStep(
       elevation = null
     ) {
       Text(
-        text = "Continue",
+        text = "GO",
         style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Bold,
         fontSize = 16.sp,
-        letterSpacing = 0.6.sp
+        letterSpacing = 1.2.sp
       )
     }
 
