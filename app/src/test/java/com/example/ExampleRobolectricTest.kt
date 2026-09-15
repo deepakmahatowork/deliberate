@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -205,6 +206,76 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("overlay_permission_status").assertExists()
     composeTestRule.onNodeWithTag("device_admin_status").assertExists()
     composeTestRule.onNodeWithTag("test_intervention_button").assertExists()
+    composeTestRule.onNodeWithTag("custom_reminder_message_input").assertExists()
+    composeTestRule.onNodeWithTag("open_on_unlock_switch").assertExists()
+    composeTestRule.onNodeWithTag("destination_gate").assertExists()
+    composeTestRule.onNodeWithTag("destination_home").assertExists()
+    composeTestRule.onNodeWithTag("test_unlock_button").assertExists()
+  }
+
+  @Test
+  fun `verify unlock preferences save and load`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val initial = UnlockPreferences.load(context)
+    assertEquals(true, initial.isOpenOnUnlockEnabled)
+
+    val updated = UnlockSettings(
+      isOpenOnUnlockEnabled = true,
+      destination = UnlockDestination.MAIN_APP,
+      cooldownSeconds = 60
+    )
+    UnlockPreferences.save(context, updated)
+
+    val loaded = UnlockPreferences.load(context)
+    assertEquals(true, loaded.isOpenOnUnlockEnabled)
+    assertEquals(UnlockDestination.MAIN_APP, loaded.destination)
+    assertEquals(60, loaded.cooldownSeconds)
+  }
+
+  @Test
+  fun `verify unlock launcher executes safely`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val launched = UnlockLauncher.launchOnUnlock(context, isTest = true)
+    assertEquals(true, launched)
+  }
+
+  @Test
+  fun `verify unlock receiver handles user present broadcast`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val receiver = UnlockReceiver()
+    val intent = Intent(Intent.ACTION_USER_PRESENT)
+    // Verify receiver handles broadcast without throwing
+    receiver.onReceive(context, intent)
+  }
+
+  @Test
+  fun `verify custom reminder message save and load`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val customText = "Take a breath. Do you need to be on your phone right now?"
+    val newSettings = ReminderSettings(
+      isEnabled = true,
+      intervalMinutes = 90,
+      startHour = 8,
+      startMinute = 30,
+      endHour = 22,
+      endMinute = 0,
+      customMessage = customText
+    )
+    ReminderPreferences.save(context, newSettings)
+
+    val loaded = ReminderPreferences.load(context)
+    assertEquals(true, loaded.isEnabled)
+    assertEquals(90, loaded.intervalMinutes)
+    assertEquals(customText, loaded.customMessage)
+  }
+
+  @Test
+  fun `verify device lock mechanism fallbacks safely`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    // Should safely execute without crashing, returning a boolean result
+    val result = DeliberateAccessibilityService.lockDevice(context)
+    // In Robolectric context with no active accessibility service or device admin, returns false safely
+    assertEquals(false, result)
   }
 
   @Test

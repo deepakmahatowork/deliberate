@@ -79,6 +79,10 @@ class ReminderReceiver : BroadcastReceiver() {
   private fun showNotification(context: Context) {
     createNotificationChannel(context)
 
+    val settings = ReminderPreferences.load(context)
+    val messageText = settings.customMessage.ifBlank { NOTIFICATION_TEXT }
+    val firstLine = messageText.lines().firstOrNull()?.take(40) ?: "Doing? Stop."
+
     // Tapping the notification opens Deliberate app's Home screen
     val tapIntent = Intent(context, MainActivity::class.java).apply {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -93,8 +97,8 @@ class ReminderReceiver : BroadcastReceiver() {
     val notification = NotificationCompat.Builder(context, CHANNEL_ID)
       .setSmallIcon(R.drawable.ic_notification)
       .setContentTitle("Deliberate")
-      .setContentText("Doing? Stop.")
-      .setStyle(NotificationCompat.BigTextStyle().bigText(NOTIFICATION_TEXT))
+      .setContentText(firstLine)
+      .setStyle(NotificationCompat.BigTextStyle().bigText(messageText))
       .setContentIntent(pendingIntent)
       .setAutoCancel(true)
       .setPriority(NotificationCompat.PRIORITY_DEFAULT)

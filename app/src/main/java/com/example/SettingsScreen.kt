@@ -39,6 +39,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -69,9 +71,11 @@ fun SettingsScreen(
 ) {
   val context = LocalContext.current
   var settings by remember { mutableStateOf(ReminderPreferences.load(context)) }
+  var customMessageInput by remember(settings.customMessage) { mutableStateOf(settings.customMessage) }
   var showPermissionRationale by remember { mutableStateOf(false) }
 
   var gateSettings by remember { mutableStateOf(OverlayPreferences.load(context)) }
+  var unlockSettings by remember { mutableStateOf(UnlockPreferences.load(context)) }
   var showGateExplanationDialog by remember { mutableStateOf(false) }
   var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
   var hasOverlayPermission by remember { mutableStateOf(canDrawOverlays(context)) }
@@ -494,6 +498,356 @@ fun SettingsScreen(
         )
       }
 
+      Spacer(modifier = Modifier.height(16.dp))
+      HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+        thickness = 1.dp
+      )
+      Spacer(modifier = Modifier.height(16.dp))
+
+      // Custom Message Section
+      Text(
+        text = "Reminder message",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Normal,
+        fontSize = 17.sp,
+        color = MaterialTheme.colorScheme.onBackground
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = "Customize the mindful text sent to your notification",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 12.sp
+      )
+      Spacer(modifier = Modifier.height(12.dp))
+
+      OutlinedTextField(
+        value = customMessageInput,
+        onValueChange = { newValue ->
+          customMessageInput = newValue
+          val updated = settings.copy(customMessage = newValue)
+          settings = updated
+          ReminderPreferences.save(context, updated)
+        },
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("custom_reminder_message_input"),
+        minLines = 3,
+        maxLines = 6,
+        shape = RoundedCornerShape(12.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+          focusedBorderColor = MaterialTheme.colorScheme.onBackground,
+          unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+          focusedTextColor = MaterialTheme.colorScheme.onBackground,
+          unfocusedTextColor = MaterialTheme.colorScheme.onBackground
+        )
+      )
+
+      if (customMessageInput != ReminderSettings.DEFAULT_REMINDER_MESSAGE) {
+        Spacer(modifier = Modifier.height(8.dp))
+        TextButton(
+          onClick = {
+            customMessageInput = ReminderSettings.DEFAULT_REMINDER_MESSAGE
+            val updated = settings.copy(customMessage = ReminderSettings.DEFAULT_REMINDER_MESSAGE)
+            settings = updated
+            ReminderPreferences.save(context, updated)
+          },
+          modifier = Modifier.testTag("reset_reminder_message_button")
+        ) {
+          Text(
+            text = "Reset to default text",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(32.dp))
+      HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+        thickness = 1.dp
+      )
+      Spacer(modifier = Modifier.height(32.dp))
+
+      // Section Header: OPEN ON PHONE UNLOCK
+      Text(
+        text = "OPEN ON PHONE UNLOCK",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 2.4.sp
+      )
+
+      Spacer(modifier = Modifier.height(20.dp))
+
+      // Open on Unlock Switch
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Open on Unlock",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Normal,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onBackground
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = if (unlockSettings.isOpenOnUnlockEnabled) "Active: opens first when phone is unlocked" else "OFF",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp
+          )
+        }
+
+        Switch(
+          checked = unlockSettings.isOpenOnUnlockEnabled,
+          onCheckedChange = { isChecked ->
+            val updated = unlockSettings.copy(isOpenOnUnlockEnabled = isChecked)
+            unlockSettings = updated
+            UnlockPreferences.save(context, updated)
+          },
+          modifier = Modifier.testTag("open_on_unlock_switch"),
+          colors = SwitchDefaults.colors(
+            checkedThumbColor = MaterialTheme.colorScheme.primary,
+            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surface
+          )
+        )
+      }
+
+      // Background launch capability indicator
+      val hasBackgroundCapability = isAccessibilityEnabled || hasOverlayPermission
+      Spacer(modifier = Modifier.height(8.dp))
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clip(RoundedCornerShape(12.dp))
+          .background(
+            if (hasBackgroundCapability) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+            else MaterialTheme.colorScheme.error.copy(alpha = 0.08f)
+          )
+          .padding(horizontal = 14.dp, vertical = 10.dp)
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text(
+            text = if (hasBackgroundCapability) "●" else "⚠",
+            color = if (hasBackgroundCapability) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            fontSize = 12.sp
+          )
+          Text(
+            text = if (hasBackgroundCapability) {
+              "Background launch ready (via ${if (isAccessibilityEnabled) "Accessibility" else "Overlay"})"
+            } else {
+              "Enable Accessibility Service below for instant background launch"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (hasBackgroundCapability) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.error,
+            fontSize = 12.sp
+          )
+        }
+      }
+
+      if (unlockSettings.isOpenOnUnlockEnabled) {
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // Destination Screen Selector
+        Text(
+          text = "Screen to open on unlock",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Normal,
+          fontSize = 16.sp,
+          color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = "Choose which screen appears first when you unlock",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          fontSize = 12.sp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          // Mindful Gate Option
+          val isGate = unlockSettings.destination == UnlockDestination.INTERVENTION_GATE
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .clip(RoundedCornerShape(12.dp))
+              .border(
+                width = 1.dp,
+                color = if (isGate) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+              )
+              .background(
+                if (isGate) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surface
+              )
+              .clickable {
+                val updated = unlockSettings.copy(destination = UnlockDestination.INTERVENTION_GATE)
+                unlockSettings = updated
+                UnlockPreferences.save(context, updated)
+              }
+              .padding(vertical = 12.dp, horizontal = 12.dp)
+              .testTag("destination_gate"),
+            contentAlignment = Alignment.Center
+          ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+              Text(
+                text = "Mindful Gate",
+                fontSize = 14.sp,
+                fontWeight = if (isGate) FontWeight.Medium else FontWeight.Normal,
+                color = if (isGate) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              Spacer(modifier = Modifier.height(2.dp))
+              Text(
+                text = "Why pick up? + lock",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+              )
+            }
+          }
+
+          // Deliberate Home Option
+          val isHome = unlockSettings.destination == UnlockDestination.MAIN_APP
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .clip(RoundedCornerShape(12.dp))
+              .border(
+                width = 1.dp,
+                color = if (isHome) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(12.dp)
+              )
+              .background(
+                if (isHome) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surface
+              )
+              .clickable {
+                val updated = unlockSettings.copy(destination = UnlockDestination.MAIN_APP)
+                unlockSettings = updated
+                UnlockPreferences.save(context, updated)
+              }
+              .padding(vertical = 12.dp, horizontal = 12.dp)
+              .testTag("destination_home"),
+            contentAlignment = Alignment.Center
+          ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+              Text(
+                text = "Deliberate Home",
+                fontSize = 14.sp,
+                fontWeight = if (isHome) FontWeight.Medium else FontWeight.Normal,
+                color = if (isHome) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              Spacer(modifier = Modifier.height(2.dp))
+              Text(
+                text = "App dashboard",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+              )
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // Cooldown Options
+        Text(
+          text = "Unlock Frequency",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Normal,
+          fontSize = 16.sp,
+          color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = "How often Deliberate should open on unlock",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          fontSize = 12.sp
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        val cooldownOptions = listOf(
+          0 to "Always",
+          30 to "30s",
+          60 to "1 min",
+          300 to "5 min"
+        )
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          cooldownOptions.forEach { (seconds, label) ->
+            val isSelected = unlockSettings.cooldownSeconds == seconds
+            Box(
+              modifier = Modifier
+                .weight(1f)
+                .height(44.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                  width = 1.dp,
+                  color = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                  shape = RoundedCornerShape(12.dp)
+                )
+                .background(
+                  if (isSelected) MaterialTheme.colorScheme.onBackground.copy(alpha = 0.12f)
+                  else MaterialTheme.colorScheme.surface
+                )
+                .clickable {
+                  val updated = unlockSettings.copy(cooldownSeconds = seconds)
+                  unlockSettings = updated
+                  UnlockPreferences.save(context, updated)
+                }
+                .testTag("unlock_cooldown_$seconds"),
+              contentAlignment = Alignment.Center
+            ) {
+              Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                color = if (isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Test Unlock Button
+        OutlinedButton(
+          onClick = {
+            UnlockLauncher.launchOnUnlock(context, isTest = true)
+          },
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp)
+            .testTag("test_unlock_button"),
+          shape = RoundedCornerShape(12.dp)
+        ) {
+          Text(
+            text = "Test Unlock Open Now",
+            style = MaterialTheme.typography.labelMedium,
+            fontSize = 14.sp
+          )
+        }
+      }
+
       Spacer(modifier = Modifier.height(32.dp))
       HorizontalDivider(
         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
@@ -731,7 +1085,7 @@ fun SettingsScreen(
             fontSize = 16.sp
           )
           Text(
-            text = "Alternative lock mechanism",
+            text = if (isDeviceAdminOn) "Active: taps 'Nothing' lock screen directly" else "Alternative lock mechanism",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp
@@ -740,9 +1094,32 @@ fun SettingsScreen(
         Text(
           text = if (isDeviceAdminOn) "Active" else "Setup →",
           style = MaterialTheme.typography.labelMedium,
-          color = if (isDeviceAdminOn) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
-          fontWeight = FontWeight.Normal
+          color = if (isDeviceAdminOn) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.primary,
+          fontWeight = if (isDeviceAdminOn) FontWeight.Medium else FontWeight.Normal
         )
+      }
+
+      if (isDeviceAdminOn) {
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedButton(
+          onClick = {
+            val locked = DeliberateAccessibilityService.lockDevice(context)
+            if (!locked) {
+              android.widget.Toast.makeText(context, "Lock attempt failed", android.widget.Toast.LENGTH_SHORT).show()
+            }
+          },
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .testTag("test_device_admin_lock_button"),
+          shape = RoundedCornerShape(10.dp)
+        ) {
+          Text(
+            text = "Test Device Lock Now",
+            style = MaterialTheme.typography.labelMedium,
+            fontSize = 14.sp
+          )
+        }
       }
 
       Spacer(modifier = Modifier.height(28.dp))

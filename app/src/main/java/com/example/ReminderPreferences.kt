@@ -10,12 +10,16 @@ data class ReminderSettings(
   val startHour: Int = 9,
   val startMinute: Int = 0,
   val endHour: Int = 21,
-  val endMinute: Int = 0
+  val endMinute: Int = 0,
+  val customMessage: String = DEFAULT_REMINDER_MESSAGE
 ) {
   fun formatStartTime(): String = formatTime(startHour, startMinute)
   fun formatEndTime(): String = formatTime(endHour, endMinute)
 
   companion object {
+    const val DEFAULT_REMINDER_MESSAGE =
+      "Doing? Stop.\nFeeling? Notice.\nFocus where? Here.\nNext? One deliberate action."
+
     fun formatTime(hour: Int, minute: Int): String {
       val period = if (hour < 12) "AM" else "PM"
       val displayHour = when (hour) {
@@ -36,6 +40,7 @@ object ReminderPreferences {
   private const val KEY_START_MINUTE = "start_minute"
   private const val KEY_END_HOUR = "end_hour"
   private const val KEY_END_MINUTE = "end_minute"
+  private const val KEY_CUSTOM_MESSAGE = "custom_message"
   private const val KEY_PERMISSION_ASKED = "notification_permission_asked"
 
   private fun getPrefs(context: Context): SharedPreferences {
@@ -50,7 +55,9 @@ object ReminderPreferences {
       startHour = prefs.getInt(KEY_START_HOUR, 9),
       startMinute = prefs.getInt(KEY_START_MINUTE, 0),
       endHour = prefs.getInt(KEY_END_HOUR, 21),
-      endMinute = prefs.getInt(KEY_END_MINUTE, 0)
+      endMinute = prefs.getInt(KEY_END_MINUTE, 0),
+      customMessage = prefs.getString(KEY_CUSTOM_MESSAGE, ReminderSettings.DEFAULT_REMINDER_MESSAGE)
+        ?: ReminderSettings.DEFAULT_REMINDER_MESSAGE
     )
   }
 
@@ -62,6 +69,7 @@ object ReminderPreferences {
       .putInt(KEY_START_MINUTE, settings.startMinute)
       .putInt(KEY_END_HOUR, settings.endHour)
       .putInt(KEY_END_MINUTE, settings.endMinute)
+      .putString(KEY_CUSTOM_MESSAGE, settings.customMessage)
       .apply()
   }
 

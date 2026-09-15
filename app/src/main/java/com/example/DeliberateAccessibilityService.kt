@@ -2,9 +2,11 @@ package com.example
 
 import android.accessibilityservice.AccessibilityService
 import android.app.admin.DevicePolicyManager
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 
@@ -19,42 +21,98 @@ class DeliberateAccessibilityService : AccessibilityService() {
 
     fun isServiceActive(): Boolean = instance != null
 
-    fun lockDevice(context: Context): Boolean {
-      // Safest official Android mechanism 1: AccessibilityService GLOBAL_ACTION_LOCK_SCREEN (API 28+)
-      val service = instance
-      if (service != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        val locked = service.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-        if (locked) return true
-      }
+    fun getInstance(): DeliberateAccessibilityService? = instance
 
-      // Safest official Android mechanism 2: DevicePolicyManager lockNow() if admin granted
+    fun lockDevice(context: Context): Boolean {
+      // 1. Direct DevicePolicyManager lockNow() if admin is active
       val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
       val adminComponent = ComponentName(context, DeliberateDeviceAdminReceiver::class.java)
       if (dpm != null && dpm.isAdminActive(adminComponent)) {
         try {
+          android.util.Log.d("Deliberate", "Attempting lockNow via DevicePolicyManager")
           dpm.lockNow()
           return true
-        } catch (_: SecurityException) {
+        } catch (e: Exception) {
+          android.util.Log.e("Deliberate", "DevicePolicyManager.lockNow() failed", e)
         }
+      }
+
+      // 2. AccessibilityService GLOBAL_ACTION_LOCK_SCREEN (API 28+)
+      val service = instance
+      if (service != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        try {
+          android.util.Log.d("Deliberate", "Attempting GLOBAL_ACTION_LOCK_SCREEN via AccessibilityService")
+          val locked = service.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+          if (locked) return true
+        } catch (e: Exception) {
+          android.util.Log.e("Deliberate", "AccessibilityService lock screen failed", e)
+        }
+      }
+
+      // 3. Fallback: navigate directly to home screen to immediately exit
+      try {
+        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+          addCategory(Intent.CATEGORY_HOME)
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(homeIntent)
+      } catch (_: Exception) {
       }
 
       return false
     }
   }
 
+  private var isReceiverRegistered = false
+
+  private val unlockReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context?, intent: Intent?) {
+      if (intent?.action == Intent.ACTION_USER_PRESENT) {
+        android.util.Log.d("DeliberateAccessibility", "ACTION_USER_PRESENT received in AccessibilityService")
+        UnlockLauncher.launchOnUnlock(this@DeliberateAccessibilityService)
+      }
+    }
+  }
+
   override fun onServiceConnected() {
     super.onServiceConnected()
     instance = this
+    registerUnlockReceiver()
+  }
+
+  private fun registerUnlockReceiver() {
+    if (!isReceiverRegistered) {
+      try {
+        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        registerReceiver(unlockReceiver, filter)
+        isReceiverRegistered = true
+      } catch (e: Exception) {
+        android.util.Log.e("DeliberateAccessibility", "Failed to register unlock receiver", e)
+      }
+    }
+  }
+
+  private fun unregisterUnlockReceiver() {
+    if (isReceiverRegistered) {
+      try {
+        unregisterReceiver(unlockReceiver)
+        isReceiverRegistered = false
+      } catch (e: Exception) {
+        android.util.Log.e("DeliberateAccessibility", "Failed to unregister unlock receiver", e)
+      }
+    }
   }
 
   override fun onDestroy() {
     super.onDestroy()
+    unregisterUnlockReceiver()
     if (instance === this) {
       instance = null
     }
   }
 
   override fun onUnbind(intent: Intent?): Boolean {
+    unregisterUnlockReceiver()
     if (instance === this) {
       instance = null
     }
