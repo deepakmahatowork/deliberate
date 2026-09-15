@@ -905,6 +905,50 @@ fun SettingsScreen(
         )
       }
 
+      // Hard Sticky Overlay Row
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Hard Sticky Overlay",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Normal,
+            fontSize = 18.sp,
+            color = MaterialTheme.colorScheme.onBackground
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = if (gateSettings.isStickyGateEnabled)
+              "Blocks Home & app switching until choice buttons are clicked"
+            else "OFF",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp
+          )
+        }
+
+        Switch(
+          checked = gateSettings.isStickyGateEnabled,
+          onCheckedChange = { isChecked ->
+            val updated = gateSettings.copy(isStickyGateEnabled = isChecked)
+            gateSettings = updated
+            OverlayPreferences.saveStickyGateEnabled(context, isChecked)
+          },
+          modifier = Modifier.testTag("sticky_gate_switch"),
+          colors = SwitchDefaults.colors(
+            checkedThumbColor = MaterialTheme.colorScheme.primary,
+            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surface
+          )
+        )
+      }
+
       Spacer(modifier = Modifier.height(16.dp))
       HorizontalDivider(
         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),

@@ -1,6 +1,10 @@
 package com.example
 
+import android.app.KeyguardManager
+import android.content.Context
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -14,6 +18,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,8 +83,31 @@ enum class InterventionStep {
 class InterventionActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+    } else {
+      @Suppress("DEPRECATION")
+      overridePendingTransition(0, 0)
+    }
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      setShowWhenLocked(true)
+      setTurnScreenOn(true)
+      val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+      km?.requestDismissKeyguard(this, null)
+    } else {
+      @Suppress("DEPRECATION")
+      window.addFlags(
+        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+          WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+          WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+      )
+    }
+
+    val settings = OverlayPreferences.load(this)
+    GateLockState.activateGate(sticky = settings.isStickyGateEnabled)
 
     setContent {
       MyApplicationTheme {
@@ -89,12 +117,14 @@ class InterventionActivity : ComponentActivity() {
         ) { innerPadding ->
           InterventionGateFlow(
             onDismissAndContinue = {
+              GateLockState.unlockAndDismiss()
               // 1. Mark intervention completed to start the 15-minute cooldown
               OverlayPreferences.markInterventionCompleted(this)
               // 2. Destroy overlay activity completely to free memory and return to normal phone use
               finish()
             },
             onLockDevice = {
+              GateLockState.unlockAndDismiss()
               // Immediately lock the phone using the safest legitimate Android mechanism
               val locked = DeliberateAccessibilityService.lockDevice(this)
               if (!locked) {
@@ -114,6 +144,43 @@ class InterventionActivity : ComponentActivity() {
       }
     }
   }
+
+  override fun onUserLeaveHint() {
+    super.onUserLeaveHint()
+    if (GateLockState.shouldEnforceSticky()) {
+      GateLockState.relaunchStickyGate(this)
+    }
+  }
+
+  override fun onPause() {
+    super.onPause()
+    if (GateLockState.shouldEnforceSticky() && !isFinishing) {
+      GateLockState.relaunchStickyGate(this)
+    }
+  }
+
+  override fun onStop() {
+    super.onStop()
+    if (GateLockState.shouldEnforceSticky() && !isFinishing) {
+      GateLockState.relaunchStickyGate(this)
+    }
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    if (!GateLockState.isDismissAllowed && GateLockState.shouldEnforceSticky()) {
+      GateLockState.relaunchStickyGate(this)
+    }
+  }
+
+  @Deprecated("Deprecated in Java")
+  override fun onBackPressed() {
+    if (GateLockState.isDismissAllowed) {
+      @Suppress("DEPRECATION")
+      super.onBackPressed()
+    }
+    // Hard sticky gate: ignore back press until user clicks a button
+  }
 }
 
 @Composable
@@ -125,10 +192,9 @@ fun InterventionGateFlow(
   var currentStep by remember { mutableStateOf(InterventionStep.QUESTION) }
   var userAction by remember { mutableStateOf("") }
 
-  // Prevent accidental back gesture from silently letting user through without deciding
-  BackHandler {
-    // Tapping back can either do nothing or trigger Nothing option
-    onLockDevice()
+  // Prevent back gesture from escaping to home or other apps without clicking buttons
+  BackHandler(enabled = true) {
+    // Hard overlay: stays sticky until buttons are clicked
   }
 
   Box(
@@ -195,6 +261,71 @@ private fun InterventionQuestionStep(
   onNothing: () -> Unit,
   modifier: Modifier = Modifier
 ) {
+  var currentPhase by remember { mutableStateOf(BreathingPhase.INHALE) }
+  var secondsLeftInPhase by remember { mutableIntStateOf(BreathingPhase.INHALE.totalSeconds) }
+
+  val orbScale = remember { Animatable(0.44f) }
+  val progressAnim = remember { Animatable(0f) }
+
+  LaunchedEffect(Unit) {
+    while (true) {
+      progressAnim.snapTo(0f)
+      launch {
+        progressAnim.animateTo(
+          targetValue = 1f,
+          animationSpec = tween(durationMillis = 12000, easing = LinearEasing)
+        )
+      }
+
+      // Phase 1: Inhale (4s)
+      currentPhase = BreathingPhase.INHALE
+      val inhaleCountdown = launch {
+        for (s in 4 downTo 1) {
+          secondsLeftInPhase = s
+          delay(1000L)
+        }
+      }
+      launch {
+        orbScale.animateTo(
+          targetValue = 1.0f,
+          animationSpec = tween(durationMillis = 4000, easing = EaseInOutCubic)
+        )
+      }
+      inhaleCountdown.join()
+
+      // Phase 2: Hold (2s)
+      currentPhase = BreathingPhase.HOLD
+      val holdCountdown = launch {
+        for (s in 2 downTo 1) {
+          secondsLeftInPhase = s
+          delay(1000L)
+        }
+      }
+      holdCountdown.join()
+
+      // Phase 3: Exhale (6s)
+      currentPhase = BreathingPhase.EXHALE
+      val exhaleCountdown = launch {
+        for (s in 6 downTo 1) {
+          secondsLeftInPhase = s
+          delay(1000L)
+        }
+      }
+      launch {
+        orbScale.animateTo(
+          targetValue = 0.44f,
+          animationSpec = tween(durationMillis = 6000, easing = EaseInOutCubic)
+        )
+      }
+      exhaleCountdown.join()
+
+      delay(300L)
+    }
+  }
+
+  val trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+  val indicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
+
   Column(
     modifier = modifier.fillMaxWidth(),
     horizontalAlignment = Alignment.CenterHorizontally
@@ -209,7 +340,7 @@ private fun InterventionQuestionStep(
       textAlign = TextAlign.Center
     )
 
-    Spacer(modifier = Modifier.height(28.dp))
+    Spacer(modifier = Modifier.height(16.dp))
 
     Text(
       text = "Do I really need my phone?",
@@ -217,29 +348,86 @@ private fun InterventionQuestionStep(
       color = MaterialTheme.colorScheme.onBackground,
       textAlign = TextAlign.Center,
       fontWeight = FontWeight.Normal,
-      fontSize = 32.sp,
-      lineHeight = 42.sp
+      fontSize = 28.sp,
+      lineHeight = 36.sp
     )
 
-    Spacer(modifier = Modifier.height(36.dp))
+    Spacer(modifier = Modifier.height(6.dp))
 
     Text(
-      text = "Breathe.\nNotice.\nChoose.",
-      style = MaterialTheme.typography.bodyLarge,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
+      text = "Breathe · Hold · Exhale",
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
       textAlign = TextAlign.Center,
-      lineHeight = 36.sp,
-      fontSize = 19.sp,
-      letterSpacing = 0.5.sp
+      fontSize = 14.sp,
+      letterSpacing = 0.8.sp,
+      fontWeight = FontWeight.Medium
     )
 
-    Spacer(modifier = Modifier.height(56.dp))
+    Spacer(modifier = Modifier.height(20.dp))
+
+    // Breathing circle embedded right on the question screen
+    Box(
+      modifier = Modifier
+        .size(190.dp)
+        .testTag("intervention_question_breathing_circle"),
+      contentAlignment = Alignment.Center
+    ) {
+      Canvas(modifier = Modifier.size(190.dp)) {
+        drawCircle(
+          color = trackColor,
+          style = Stroke(width = 1.5.dp.toPx())
+        )
+        drawArc(
+          color = indicatorColor,
+          startAngle = -90f,
+          sweepAngle = progressAnim.value * 360f,
+          useCenter = false,
+          style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+        )
+      }
+
+      Box(
+        modifier = Modifier
+          .size(190.dp)
+          .scale(orbScale.value)
+          .clip(CircleShape)
+          .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.07f))
+          .border(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
+            shape = CircleShape
+          )
+      )
+
+      Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+          text = currentPhase.label,
+          style = MaterialTheme.typography.headlineMedium,
+          color = MaterialTheme.colorScheme.onBackground,
+          fontWeight = FontWeight.Normal,
+          fontSize = 24.sp,
+          letterSpacing = 0.5.sp
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+          text = "${secondsLeftInPhase}s",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          fontSize = 14.sp
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(28.dp))
 
     Button(
       onClick = onPause,
       modifier = Modifier
         .width(200.dp)
-        .height(52.dp)
+        .height(50.dp)
         .testTag("intervention_pause_button"),
       shape = RoundedCornerShape(999.dp),
       colors = ButtonDefaults.buttonColors(
@@ -257,7 +445,7 @@ private fun InterventionQuestionStep(
       )
     }
 
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(14.dp))
 
     NothingButton(onClick = onNothing, testTag = "nothing_button_step1")
   }
@@ -578,9 +766,7 @@ private fun NothingButton(
     colors = ButtonDefaults.outlinedButtonColors(
       contentColor = MaterialTheme.colorScheme.onSurfaceVariant
     ),
-    border = ButtonDefaults.outlinedButtonBorder.copy(
-      width = 1.dp
-    )
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
   ) {
     Text(
       text = "Nothing",

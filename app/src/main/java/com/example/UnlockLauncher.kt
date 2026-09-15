@@ -1,5 +1,6 @@
 package com.example
 
+import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -27,8 +28,8 @@ object UnlockLauncher {
 
     val now = System.currentTimeMillis()
     if (!isTest) {
-      // 1. Debounce within 3 seconds so multiple receivers don't fire twice
-      if (now - lastLaunchTimestamp < 3000L) {
+      // 1. Debounce within 1.2 seconds so multiple receivers don't fire twice
+      if (now - lastLaunchTimestamp < 1200L) {
         Log.d(TAG, "Debounced unlock trigger")
         return false
       }
@@ -55,16 +56,19 @@ object UnlockLauncher {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or
         Intent.FLAG_ACTIVITY_CLEAR_TOP or
         Intent.FLAG_ACTIVITY_SINGLE_TOP or
-        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+        Intent.FLAG_ACTIVITY_NO_ANIMATION
       putExtra("triggered_by_unlock", true)
     }
 
-    // Mechanism 1: Accessibility Service (Highest priority for background activity start)
+    val animOptions = ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle()
+
+    // Mechanism 1: Accessibility Service (Highest priority for instant background activity start)
     val activeService = DeliberateAccessibilityService.getInstance()
     if (activeService != null) {
       try {
-        Log.d(TAG, "Launching via DeliberateAccessibilityService")
-        activeService.startActivity(launchIntent)
+        Log.d(TAG, "Instant launch via DeliberateAccessibilityService")
+        activeService.startActivity(launchIntent, animOptions)
         return true
       } catch (e: Exception) {
         Log.e(TAG, "Failed launching via AccessibilityService", e)
@@ -73,9 +77,8 @@ object UnlockLauncher {
 
     // Mechanism 2: Direct Context Launch (Works when overlay permission granted or on pre-Q)
     try {
-      Log.d(TAG, "Launching via context.startActivity")
-      context.startActivity(launchIntent)
-      // If overlay permission is granted or device allows it, direct launch succeeded
+      Log.d(TAG, "Instant launch via context.startActivity")
+      context.startActivity(launchIntent, animOptions)
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Settings.canDrawOverlays(context)) {
         return true
       }

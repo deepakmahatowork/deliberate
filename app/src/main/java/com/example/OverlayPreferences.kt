@@ -6,7 +6,8 @@ import android.content.SharedPreferences
 data class OverlayGateSettings(
   val isGateEnabled: Boolean = false,
   val cooldownMinutes: Int = 15,
-  val lastInterventionTime: Long = 0L
+  val lastInterventionTime: Long = 0L,
+  val isStickyGateEnabled: Boolean = true
 )
 
 object OverlayPreferences {
@@ -14,6 +15,7 @@ object OverlayPreferences {
   private const val KEY_GATE_ENABLED = "gate_enabled"
   private const val KEY_COOLDOWN_MINUTES = "cooldown_minutes"
   private const val KEY_LAST_INTERVENTION_TIME = "last_intervention_time"
+  private const val KEY_STICKY_GATE_ENABLED = "sticky_gate_enabled"
 
   private fun getPrefs(context: Context): SharedPreferences {
     return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -24,12 +26,17 @@ object OverlayPreferences {
     return OverlayGateSettings(
       isGateEnabled = prefs.getBoolean(KEY_GATE_ENABLED, false),
       cooldownMinutes = prefs.getInt(KEY_COOLDOWN_MINUTES, 15),
-      lastInterventionTime = prefs.getLong(KEY_LAST_INTERVENTION_TIME, 0L)
+      lastInterventionTime = prefs.getLong(KEY_LAST_INTERVENTION_TIME, 0L),
+      isStickyGateEnabled = prefs.getBoolean(KEY_STICKY_GATE_ENABLED, true)
     )
   }
 
   fun saveGateEnabled(context: Context, enabled: Boolean) {
     getPrefs(context).edit().putBoolean(KEY_GATE_ENABLED, enabled).apply()
+  }
+
+  fun saveStickyGateEnabled(context: Context, enabled: Boolean) {
+    getPrefs(context).edit().putBoolean(KEY_STICKY_GATE_ENABLED, enabled).apply()
   }
 
   fun saveCooldownMinutes(context: Context, minutes: Int) {

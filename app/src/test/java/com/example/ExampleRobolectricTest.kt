@@ -240,6 +240,24 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `verify question step displays breathe hold exhale directly`() {
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        InterventionGateFlow(
+          onDismissAndContinue = {},
+          onLockDevice = {}
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithText("Do I really need my phone?").assertIsDisplayed()
+    composeTestRule.onNodeWithText("Breathe · Hold · Exhale").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("intervention_question_breathing_circle").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("intervention_pause_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("nothing_button_step1").assertIsDisplayed()
+  }
+
+  @Test
   fun `verify unlock receiver handles user present broadcast`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val receiver = UnlockReceiver()
@@ -301,6 +319,40 @@ class ExampleRobolectricTest {
       composeTestRule.onNodeWithTag("nothing_button_step1").performClick()
       assertEquals(i, lockedCount)
     }
+  }
+
+  @Test
+  fun `verify gate lock state sticky enforcement`() {
+    // Gate activation enforces sticky mode
+    GateLockState.activateGate(sticky = true)
+    assertEquals(true, GateLockState.isGateActive)
+    assertEquals(false, GateLockState.isDismissAllowed)
+    assertEquals(true, GateLockState.shouldEnforceSticky())
+
+    // Safe relaunch execution
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    GateLockState.relaunchStickyGate(context)
+
+    // Unlocking on deliberate decision
+    GateLockState.unlockAndDismiss()
+    assertEquals(false, GateLockState.isGateActive)
+    assertEquals(true, GateLockState.isDismissAllowed)
+    assertEquals(false, GateLockState.shouldEnforceSticky())
+  }
+
+  @Test
+  fun `verify overlay gate preferences sticky setting`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    OverlayPreferences.saveStickyGateEnabled(context, true)
+    var settings = OverlayPreferences.load(context)
+    assertEquals(true, settings.isStickyGateEnabled)
+
+    OverlayPreferences.saveStickyGateEnabled(context, false)
+    settings = OverlayPreferences.load(context)
+    assertEquals(false, settings.isStickyGateEnabled)
+
+    // Restore default
+    OverlayPreferences.saveStickyGateEnabled(context, true)
   }
 }
 

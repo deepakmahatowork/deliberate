@@ -1,6 +1,8 @@
 package com.example
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -64,12 +66,26 @@ class DeliberateAccessibilityService : AccessibilityService() {
   }
 
   private var isReceiverRegistered = false
+  private var wasKeyguardLocked = true
 
   private val unlockReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
-      if (intent?.action == Intent.ACTION_USER_PRESENT) {
-        android.util.Log.d("DeliberateAccessibility", "ACTION_USER_PRESENT received in AccessibilityService")
-        UnlockLauncher.launchOnUnlock(this@DeliberateAccessibilityService)
+      when (intent?.action) {
+        Intent.ACTION_SCREEN_OFF -> {
+          wasKeyguardLocked = true
+        }
+        Intent.ACTION_USER_PRESENT -> {
+          wasKeyguardLocked = false
+          android.util.Log.d("DeliberateAccessibility", "ACTION_USER_PRESENT received in AccessibilityService")
+          UnlockLauncher.launchOnUnlock(this@DeliberateAccessibilityService)
+        }
+        Intent.ACTION_SCREEN_ON -> {
+          val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+          if (km?.isKeyguardLocked == false) {
+            wasKeyguardLocked = false
+            UnlockLauncher.launchOnUnlock(this@DeliberateAccessibilityService)
+          }
+        }
       }
     }
   }
@@ -83,7 +99,12 @@ class DeliberateAccessibilityService : AccessibilityService() {
   private fun registerUnlockReceiver() {
     if (!isReceiverRegistered) {
       try {
-        val filter = IntentFilter(Intent.ACTION_USER_PRESENT)
+        val filter = IntentFilter().apply {
+          addAction(Intent.ACTION_USER_PRESENT)
+          addAction(Intent.ACTION_SCREEN_OFF)
+          addAction(Intent.ACTION_SCREEN_ON)
+          priority = IntentFilter.SYSTEM_HIGH_PRIORITY
+        }
         registerReceiver(unlockReceiver, filter)
         isReceiverRegistered = true
       } catch (e: Exception) {
@@ -121,6 +142,42 @@ class DeliberateAccessibilityService : AccessibilityService() {
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     if (event == null) return
+
+    // 0. Ultra-fast unlock detection on any lockscreen window change
+    if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+      event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+    ) {
+      val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+      val isKeyguardCurrentlyLocked = km?.isKeyguardLocked == true
+      if (wasKeyguardLocked && !isKeyguardCurrentlyLocked) {
+        wasKeyguardLocked = false
+        android.util.Log.d("DeliberateAccessibility", "Instant keyguard unlock detected via window state change!")
+        UnlockLauncher.launchOnUnlock(this)
+      } else if (isKeyguardCurrentlyLocked) {
+        wasKeyguardLocked = true
+      }
+    }
+
+    // 0.1 Hard Sticky Overlay Enforcement:
+    // If gate is active and decision buttons have NOT been clicked yet,
+    // do not allow switching to any other app, home launcher, or recents!
+    if (GateLockState.shouldEnforceSticky()) {
+      val eventPackage = event.packageName?.toString() ?: ""
+      if (eventPackage.isNotEmpty() && eventPackage != packageName) {
+        val lowerPkg = eventPackage.lowercase()
+        // Allow critical emergency & phone dialer calls
+        if (!lowerPkg.contains("emergency") &&
+          !lowerPkg.contains("telecom") &&
+          !lowerPkg.contains("incallui") &&
+          !lowerPkg.contains("dialer")
+        ) {
+          android.util.Log.d("DeliberateAccessibility", "Sticky gate active: intercepting attempt to switch to $eventPackage")
+          GateLockState.relaunchStickyGate(this)
+          return
+        }
+      }
+    }
+
     if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
     // 1. Check if gate is enabled
@@ -153,10 +210,12 @@ class DeliberateAccessibilityService : AccessibilityService() {
     // 5. Trigger the Intervention Activity full-screen gate
     val intent = Intent(this, InterventionActivity::class.java).apply {
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
         Intent.FLAG_ACTIVITY_SINGLE_TOP or
-        Intent.FLAG_ACTIVITY_CLEAR_TOP
+        Intent.FLAG_ACTIVITY_NO_ANIMATION
     }
-    startActivity(intent)
+    val options = ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()
+    startActivity(intent, options)
   }
 
   override fun onInterrupt() {
